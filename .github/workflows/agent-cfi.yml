@@ -1,0 +1,33 @@
+name: agent-cfi
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install agent-cfi
+        run: pip install -e .
+
+      - name: Run agent evals and capture traces
+        run: python examples/demo.py --emit-pr-traces > pr-traces.jsonl
+
+      - name: agent-cfi gate
+        uses: ./
+        with:
+          traces: pr-traces.jsonl
+          baseline: .agent-cfi/baseline.json
+          config: .agent-cfi/config.yaml

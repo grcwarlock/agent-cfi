@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+.env
+*.sarif
+.agent-cfi/cache/
+.agent-cfi/baseline.json
+examples/baseline.json
+examples/agent-cfi.sarif
+examples/traces_*.jsonl

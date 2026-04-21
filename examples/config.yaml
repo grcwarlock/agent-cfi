@@ -1,0 +1,35 @@
+# Example agent-cfi config. Copy to .agent-cfi/config.yaml at your repo root.
+
+sensitive_tools:
+  - shell_exec
+  - http_post
+  - http_get
+  - fs_write
+  - db_query
+  - email_send
+  - git_push
+  - pip_install
+  - npm_install
+
+tainted_sources:
+  - user_input
+  - retrieved
+  - "tool_output:web_fetch"
+  - "tool_output:search_docs"
+  - "tool_output:*"   # wildcard: any retrieved tool output
+
+edge_probability_threshold: 0.30
+
+# edges permitted without failing even if absent from baseline
+allow_new_edges: []
+# examples:
+#   - "planner -> fs_read"
+#   - "summarize -> __end__"
+
+fail_on:
+  - new_edge
+  - taint_violation
+
+warn_on:
+  - edge_drift
+  - removed_edge
