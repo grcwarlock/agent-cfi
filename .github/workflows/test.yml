@@ -35,5 +35,15 @@ jobs:
         run: |
           agent-cfi --version
           agent-cfi --help > /dev/null
-          python examples/demo.py > /dev/null
           agent-cfi visualize --graph .agent-cfi/baseline.json > /dev/null
+          agent-cfi fuzz-probes --out /tmp/fuzzed.yaml --count 2 --seed 1 > /dev/null
+          # Verify demo.py runs end-to-end. Exit 1 is expected (findings detected),
+          # so accept 0 or 1 and fail on anything else.
+          set +e
+          python examples/demo.py > /dev/null
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 1 ]; then
+            echo "demo.py exited with unexpected code $rc" >&2
+            exit "$rc"
+          fi
