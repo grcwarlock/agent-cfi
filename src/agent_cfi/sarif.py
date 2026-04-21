@@ -5,13 +5,14 @@ import json
 from pathlib import Path
 from typing import Iterable, Union
 
+from . import __version__
 from .graph import EdgeFinding
 from .mcp import MCPSchemaFinding
 from .taint import TaintFinding
 
 Finding = Union[EdgeFinding, TaintFinding, MCPSchemaFinding]
 
-_VERSION = "0.2.0"
+_VERSION = __version__
 _TOOL_URI = "https://github.com/grcwarlock/agent-cfi"
 _HELP_URI = f"{_TOOL_URI}#what-it-catches"
 

@@ -29,6 +29,18 @@ inputs:
     description: "Comma-separated list of finding kinds that fail the build. Overrides config."
     required: false
     default: ""
+  mcp-pins:
+    description: "Path to an MCP pin file produced by `agent-cfi mcp-pin` (optional). Requires mcp-current."
+    required: false
+    default: ""
+  mcp-current:
+    description: "Path to a JSON file of live MCP tool schemas for this PR (optional). Requires mcp-pins."
+    required: false
+    default: ""
+  python-version:
+    description: "Python version used to run agent-cfi."
+    required: false
+    default: "3.12"
 
 runs:
   using: "composite"
@@ -36,7 +48,7 @@ runs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: "3.12"
+        python-version: ${{ inputs.python-version }}
 
     - name: Install agent-cfi
       shell: bash
@@ -46,12 +58,22 @@ runs:
       id: check
       shell: bash
       run: |
-        agent-cfi check \
-          --baseline "${{ inputs.baseline }}" \
-          --current "${{ inputs.traces }}" \
-          --config "${{ inputs.config }}" \
-          --sarif "${{ inputs.sarif }}" \
-          ${{ inputs.fail-on && format('--fail-on {0}', inputs.fail-on) || '' }}
+        args=(
+          --baseline "${{ inputs.baseline }}"
+          --current  "${{ inputs.traces }}"
+          --config   "${{ inputs.config }}"
+          --sarif    "${{ inputs.sarif }}"
+        )
+        if [ -n "${{ inputs.fail-on }}" ]; then
+          args+=(--fail-on "${{ inputs.fail-on }}")
+        fi
+        if [ -n "${{ inputs.mcp-pins }}" ] && [ -n "${{ inputs.mcp-current }}" ]; then
+          args+=(--mcp-pins "${{ inputs.mcp-pins }}" --mcp-current "${{ inputs.mcp-current }}")
+        elif [ -n "${{ inputs.mcp-pins }}" ] || [ -n "${{ inputs.mcp-current }}" ]; then
+          echo "::error::mcp-pins and mcp-current must be provided together."
+          exit 2
+        fi
+        agent-cfi check "${args[@]}"
 
     - name: Upload SARIF to Code Scanning
       if: ${{ always() && inputs.upload-sarif == 'true' }}

@@ -6,6 +6,7 @@ import sys
 
 import yaml
 
+from . import __version__
 from .graph import (
     build_graph,
     diff_graphs,
@@ -195,6 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="agent-cfi",
         description="Control Flow Integrity for AI agents.",
     )
+    p.add_argument("--version", action="version", version=f"agent-cfi {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     pr = sub.add_parser("record", help="Build baseline graph from traces.")
