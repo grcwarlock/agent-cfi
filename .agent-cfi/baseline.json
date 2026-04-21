@@ -1,0 +1,50 @@
+{
+  "edges": [
+    {
+      "count": 3,
+      "from": "__start__",
+      "prob": 1.0,
+      "to": "planner"
+    },
+    {
+      "count": 3,
+      "from": "planner",
+      "prob": 1.0,
+      "to": "search_docs"
+    },
+    {
+      "count": 3,
+      "from": "search_docs",
+      "prob": 1.0,
+      "to": "summarize"
+    },
+    {
+      "count": 3,
+      "from": "summarize",
+      "prob": 1.0,
+      "to": "__end__"
+    }
+  ],
+  "nodes": [
+    {
+      "count": 3,
+      "tool": "__end__"
+    },
+    {
+      "count": 3,
+      "tool": "__start__"
+    },
+    {
+      "count": 3,
+      "tool": "planner"
+    },
+    {
+      "count": 3,
+      "tool": "search_docs"
+    },
+    {
+      "count": 3,
+      "tool": "summarize"
+    }
+  ]
+}

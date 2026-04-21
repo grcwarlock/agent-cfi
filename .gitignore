@@ -11,7 +11,6 @@ venv/
 .env
 *.sarif
 .agent-cfi/cache/
-.agent-cfi/baseline.json
 examples/baseline.json
 examples/agent-cfi.sarif
 examples/traces_*.jsonl

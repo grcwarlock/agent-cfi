@@ -40,7 +40,7 @@ runs:
 
     - name: Install agent-cfi
       shell: bash
-      run: pip install agent-cfi
+      run: pip install -e "$GITHUB_ACTION_PATH"
 
     - name: Run agent-cfi check
       id: check
