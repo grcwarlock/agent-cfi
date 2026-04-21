@@ -1,5 +1,5 @@
 name: "agent-cfi"
-description: "Control Flow Integrity for AI agents. Diff the tool-call graph between main and this PR; fail on new edges, drift, or tainted sinks."
+description: "CI gate for AI agents. Fails on tool-call graph drift, new edges, or tainted sinks between main and this PR."
 author: "grcwarlock"
 branding:
   icon: "shield"
