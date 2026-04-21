@@ -1,6 +1,6 @@
 name: "agent-cfi"
 description: "Control Flow Integrity for AI agents. Diff the tool-call graph between main and this PR; fail on new edges, drift, or tainted sinks."
-author: "agent-cfi contributors"
+author: "grcwarlock"
 branding:
   icon: "shield"
   color: "purple"
