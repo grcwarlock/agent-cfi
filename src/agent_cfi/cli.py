@@ -12,8 +12,17 @@ from .graph import (
     load_graph,
     load_traces,
     parse_edge_spec,
+    render_dot,
     save_graph,
 )
+from .mcp import (
+    check_schemas,
+    load_current_schemas,
+    load_pins,
+    pin_schemas,
+    save_pins,
+)
+from .fuzz import fuzz_probes
 from .probes import load_probes, resolve_agent, run_probes
 from .sarif import write_sarif
 from .taint import check_taint
@@ -80,11 +89,23 @@ def cmd_check(args: argparse.Namespace) -> int:
         cfg["sensitive_tools"],
         cfg["tainted_sources"],
     )
-    all_findings = [*edge_findings, *taint_findings]
+
+    mcp_findings = []
+    if args.mcp_pins or args.mcp_current:
+        if not (args.mcp_pins and args.mcp_current):
+            print("agent-cfi: --mcp-pins and --mcp-current must be provided together.",
+                  file=sys.stderr)
+            return 2
+        pinned = load_pins(args.mcp_pins)
+        current_schemas = load_current_schemas(args.mcp_current)
+        mcp_findings = check_schemas(pinned, current_schemas)
+
+    all_findings = [*edge_findings, *taint_findings, *mcp_findings]
     errs = [f for f in all_findings if f.kind in fail_on]
 
     print(f"agent-cfi: {len(edge_findings)} graph finding(s), "
-          f"{len(taint_findings)} taint finding(s).")
+          f"{len(taint_findings)} taint finding(s), "
+          f"{len(mcp_findings)} MCP schema finding(s).")
     if not all_findings:
         print("  no drift, no tainted sinks. baseline holds.")
     for f in all_findings:
@@ -116,17 +137,56 @@ def cmd_probe(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def cmd_mcp_pin(args: argparse.Namespace) -> int:
+    schemas = load_current_schemas(args.schemas)
+    pins = pin_schemas(schemas)
+    save_pins(pins, args.out)
+    total_tools = sum(len(tools) for tools in pins.values())
+    print(
+        f"agent-cfi: wrote MCP pin file {args.out}\n"
+        f"  servers={len(pins)}  tools={total_tools}"
+    )
+    return 0
+
+
+def cmd_fuzz_probes(args: argparse.Namespace) -> int:
+    probes = load_probes(args.input)
+    fuzzed = fuzz_probes(probes, n=args.count, seed=args.seed, unicode=args.unicode)
+    # Emit in the same top-level shape as probes.yaml so the output can be fed
+    # back into load_probes / --probes PATH.
+    doc = {
+        "probes": [
+            {
+                "id": p.id,
+                "name": p.name,
+                "category": p.category,
+                "payload": p.payload,
+                "inject_via": p.inject_via,
+                "forbidden_tools": list(p.forbidden_tools),
+                "expect": p.expect,
+                **({"cve": p.cve} if p.cve is not None else {}),
+                **({"reference": p.reference} if p.reference is not None else {}),
+                **({"description": p.description} if p.description is not None else {}),
+            }
+            for p in fuzzed
+        ]
+    }
+    with open(args.out, "w", encoding="utf-8") as f:
+        yaml.safe_dump(doc, f, sort_keys=False, allow_unicode=True)
+    print(
+        f"agent-cfi: wrote {args.out}\n"
+        f"  source_probes={len(probes)}  variants_per_probe={args.count}  "
+        f"total={len(fuzzed)}  unicode={args.unicode}"
+    )
+    return 0
+
+
 def cmd_visualize(args: argparse.Namespace) -> int:
     g = load_graph(args.graph)
-    print("digraph agent_cfi {")
-    print('  rankdir=LR;')
-    print('  node [shape=box,fontname="Helvetica"];')
-    for n in sorted(g.nodes):
-        print(f'  "{n}" [label="{n}\\ncount={g.nodes[n].get("count", 0)}"];')
-    for u, v, d in g.edges(data=True):
-        p = float(d.get("prob", 0.0))
-        print(f'  "{u}" -> "{v}" [label="p={p:.2f}"];')
-    print("}")
+    baseline = load_graph(args.baseline) if args.baseline else None
+    sys.stdout.write(
+        render_dot(g, baseline=baseline, drift_threshold=float(args.drift_threshold))
+    )
     return 0
 
 
@@ -149,7 +209,18 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--sarif", default=None)
     pc.add_argument("--fail-on", default=None,
                     help="Comma-separated kinds to fail on (overrides config).")
+    pc.add_argument("--mcp-pins", default=None,
+                    help="Path to MCP pin file (must be used with --mcp-current).")
+    pc.add_argument("--mcp-current", default=None,
+                    help="Path to live MCP schemas JSON (must be used with --mcp-pins).")
     pc.set_defaults(func=cmd_check)
+
+    pm = sub.add_parser("mcp-pin",
+                        help="Hash MCP tool schemas and write a pin file.")
+    pm.add_argument("--schemas", required=True,
+                    help="JSON file of {server: {tool: schema}}.")
+    pm.add_argument("--out", default=".agent-cfi/mcp-pins.json")
+    pm.set_defaults(func=cmd_mcp_pin)
 
     pp = sub.add_parser("probe", help="Run probe pack against an agent.")
     pp.add_argument("--probes", default=None)
@@ -159,8 +230,28 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Run probes concurrently in N threads (agent must be thread-safe).")
     pp.set_defaults(func=cmd_probe)
 
+    pf = sub.add_parser(
+        "fuzz-probes",
+        help="Paraphrase probe payloads offline and write a new YAML probe pack.",
+    )
+    pf.add_argument("--in", dest="input", default=None,
+                    help="Source probe YAML (defaults to packaged probes.yaml).")
+    pf.add_argument("--out", required=True,
+                    help="Output YAML path for fuzzed probes.")
+    pf.add_argument("--count", type=int, default=3,
+                    help="Paraphrased variants per source probe (default 3).")
+    pf.add_argument("--seed", type=int, default=None,
+                    help="RNG seed for deterministic output.")
+    pf.add_argument("--unicode", action="store_true",
+                    help="Include Unicode lookalike substitutions (non-ASCII output).")
+    pf.set_defaults(func=cmd_fuzz_probes)
+
     pv = sub.add_parser("visualize", help="Print graph in DOT format.")
     pv.add_argument("--graph", required=True)
+    pv.add_argument("--baseline", default=None,
+                    help="Baseline graph to diff against; colorizes edges.")
+    pv.add_argument("--drift-threshold", type=float, default=0.30,
+                    help="Probability delta classified as edge_drift (default 0.30).")
     pv.set_defaults(func=cmd_visualize)
 
     return p

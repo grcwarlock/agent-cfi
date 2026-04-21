@@ -15,16 +15,32 @@ from .graph import (
     diff_graphs,
 )
 from .taint import TaintFinding, check_taint
-from .tracer import TraceRecorder
+from .tracer import (
+    TraceRecorder,
+    from_openai_messages,
+    from_langgraph_events,
+    from_crewai_outputs,
+    from_autogen_messages,
+)
 from .probes import Probe, ProbeResult, load_probes, run_probes
+from .fuzz import paraphrase, fuzz_probes
+from .mcp import (
+    MCPSchemaFinding,
+    hash_schema,
+    pin_schemas,
+    check_schemas,
+    save_pins,
+    load_pins,
+)
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "TraceEvent",
     "TraceRecorder",
     "EdgeFinding",
     "TaintFinding",
+    "MCPSchemaFinding",
     "Probe",
     "ProbeResult",
     "START",
@@ -37,4 +53,15 @@ __all__ = [
     "check_taint",
     "load_probes",
     "run_probes",
+    "paraphrase",
+    "fuzz_probes",
+    "from_openai_messages",
+    "from_langgraph_events",
+    "from_crewai_outputs",
+    "from_autogen_messages",
+    "hash_schema",
+    "pin_schemas",
+    "check_schemas",
+    "save_pins",
+    "load_pins",
 ]

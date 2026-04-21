@@ -50,7 +50,14 @@ Record tool-use from your agent. `agent-cfi` reads a simple JSONL format, one ev
 {"run_id": "r1", "step": 3, "tool": "__end__", "arg_sources": {}}
 ```
 
-`agent_cfi.tracer` ships `TraceRecorder` for emitting events directly, plus `from_openai_messages` for converting an OpenAI chat/tool_calls message list. Bring-your-own for other frameworks — the format is stable and trivial.
+`agent_cfi.tracer` ships `TraceRecorder` for emitting events directly, plus framework-adapter helpers that convert native event/message sequences into `list[TraceEvent]`:
+
+- `from_openai_messages` — OpenAI chat/tool_calls message list
+- `from_langgraph_events` — LangGraph `graph.stream()` state-update events
+- `from_crewai_outputs` — CrewAI `AgentOutput` / `TaskOutput` objects
+- `from_autogen_messages` — AutoGen GroupChat message sequences
+
+Adapters are pure shape-readers (no framework imports), accept dicts or native objects, and bookend with `__start__` / `__end__`. Bring-your-own for other frameworks — the format is stable and trivial.
 
 ### 2. Build the baseline from `main`
 
@@ -82,6 +89,17 @@ agent-cfi probe --agent mypkg.agent:run --jobs 8
 
 `--agent` takes a `module:callable` that accepts a `Probe` and returns an iterable of `TraceEvent`. Injection payloads are derived from real 2025–2026 CVEs; each probe asserts the agent either refuses or stays inside the allowed graph.
 
+### 5. Fuzz the probe pack (optional)
+
+Agents that pass probes via exact-string regex matches are cheating. `agent-cfi fuzz-probes` expands the pack with rule-based paraphrases — synonyms, reordering, benign prefixes/suffixes, punctuation mangling, optional Unicode lookalikes — so you can check the guardrail generalizes. Offline only; no LLM calls, no network.
+
+```bash
+agent-cfi fuzz-probes --out probes-fuzzed.yaml --count 5
+agent-cfi probe --agent mypkg.agent:run --probes probes-fuzzed.yaml
+```
+
+Use `--seed INT` for deterministic output and `--unicode` to include Cyrillic/Greek homoglyph substitutions.
+
 ## GitHub Action
 
 ```yaml
@@ -104,6 +122,7 @@ See [`action.yml`](action.yml).
 | Exfiltration via `http.post` after reading secrets | Tainted source (`tool_output:fs_read`) reaches sink arg (`http_post.body`) |
 | Agent hijacked into loop (e.g., billing drain) | Edge probability drift beyond threshold |
 | Rules-file backdoor changing tool preference | Baseline edges drop off; new edges appear |
+| MCP tool "rug-pull" (schema silently mutates between main and PR) | Pinned SHA256 per tool schema on main, re-hashed on PR; `mcp_schema_mismatch` finding on any added, removed, or changed tool |
 
 ## What it does NOT do
 
@@ -147,7 +166,20 @@ summarize --1.0--> __end__
 
 A PR that introduces `summarize → shell_exec` is an unambiguous new edge. A PR that shifts `planner → fs_read` from 0.2 to 0.9 is behavioral drift. Both fail the gate (configurable).
 
-Inspect a baseline with `agent-cfi visualize --graph .agent-cfi/baseline.json` — emits Graphviz DOT, pipe through `dot -Tsvg` for a rendered graph.
+Inspect a baseline with `agent-cfi visualize` — it emits Graphviz DOT, pipe through `dot -Tsvg` for a rendered graph. Two modes:
+
+```bash
+# Single graph: just the current topology with counts and probs.
+agent-cfi visualize --graph .agent-cfi/baseline.json | dot -Tsvg > graph.svg
+
+# Diff overlay: colorize edges vs a baseline.
+#   red          = new edge (present in current, absent in baseline)
+#   grey dashed  = removed edge (in baseline, gone in current)
+#   amber        = edge_drift, label shows "p=baseline→current"
+agent-cfi visualize --graph pr.json --baseline main.json | dot -Tsvg > diff.svg
+```
+
+`--drift-threshold` (default `0.30`) controls how much a probability must shift before an edge is classified as drift.
 
 ## Taint rules
 
@@ -164,14 +196,6 @@ Patterns support a trailing `*` wildcard (e.g. `tool_output:*` matches any `tool
 `agent-cfi` is deliberately small. One primitive — **the agent's tool-call graph is a policy artifact** — applied at one place — **the CI gate**. No models, no network calls, no embeddings. Runs in a few seconds on a laptop.
 
 If you need runtime enforcement, write a guardrail. If you need behavioral regression testing in CI, you need this.
-
-## Roadmap
-
-- [ ] Hash-pinning for MCP tool schemas (detect rug-pull between main and PR)
-- [ ] `agent-cfi visualize` → SVG graph with diff overlay
-- [ ] Probe pack v2: MCP tool-poisoning, Camo-proxy exfil patterns
-- [ ] Native LangGraph / CrewAI / AutoGen tracers
-- [ ] Offline fuzzer that mutates probe prompts via paraphrase
 
 ## License
 

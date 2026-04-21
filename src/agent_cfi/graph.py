@@ -217,3 +217,115 @@ def parse_edge_spec(spec: str) -> tuple[str, str]:
         raise ValueError(f"expected 'src->dst', got {spec!r}")
     src, dst = spec.split("->", 1)
     return src.strip(), dst.strip()
+
+
+# ---------- Graphviz DOT rendering ----------
+
+_COLOR_NEW = "#d73a49"
+_COLOR_REMOVED = "#959da5"
+_COLOR_DRIFT = "#b08800"
+
+
+def _dot_escape(s: str) -> str:
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def render_dot(
+    g: nx.DiGraph,
+    *,
+    baseline: nx.DiGraph | None = None,
+    drift_threshold: float = 0.30,
+) -> str:
+    """Render a graph as Graphviz DOT.
+
+    When ``baseline`` is given, ``g`` is treated as the "current" graph and
+    edges are colorized against the baseline:
+      - new_edge     -> red
+      - removed_edge -> grey dashed (shown on top of current nodes)
+      - edge_drift   -> amber, label "p=B->C"
+      - unchanged    -> default black
+    A small legend subgraph is appended.
+    """
+    lines: list[str] = []
+    lines.append("digraph agent_cfi {")
+    lines.append("  rankdir=LR;")
+    lines.append('  node [shape=box,fontname="Helvetica"];')
+
+    # Nodes: union of current + baseline nodes (so removed-edge endpoints render).
+    node_names: set[str] = set(g.nodes)
+    if baseline is not None:
+        node_names |= set(baseline.nodes)
+    for n in sorted(node_names):
+        if n in g.nodes:
+            count = int(g.nodes[n].get("count", 0))
+        else:
+            count = int(baseline.nodes[n].get("count", 0)) if baseline is not None else 0
+        nn = _dot_escape(n)
+        lines.append(f'  "{nn}" [label="{nn}\\ncount={count}"];')
+
+    if baseline is None:
+        for u, v, d in g.edges(data=True):
+            p = float(d.get("prob", 0.0))
+            uu, vv = _dot_escape(u), _dot_escape(v)
+            lines.append(f'  "{uu}" -> "{vv}" [label="p={p:.2f}"];')
+        lines.append("}")
+        return "\n".join(lines) + "\n"
+
+    base_edges = {(u, v): d for u, v, d in baseline.edges(data=True)}
+    cur_edges = {(u, v): d for u, v, d in g.edges(data=True)}
+
+    for (u, v), d in sorted(cur_edges.items()):
+        cp = float(d.get("prob", 0.0))
+        uu, vv = _dot_escape(u), _dot_escape(v)
+        if (u, v) not in base_edges:
+            lines.append(
+                f'  "{uu}" -> "{vv}" '
+                f'[label="p={cp:.2f}",color="{_COLOR_NEW}",penwidth=2];'
+            )
+        else:
+            bp = float(base_edges[(u, v)].get("prob", 0.0))
+            if abs(cp - bp) >= drift_threshold:
+                lines.append(
+                    f'  "{uu}" -> "{vv}" '
+                    f'[label="p={bp:.2f}→{cp:.2f}",color="{_COLOR_DRIFT}"];'
+                )
+            else:
+                lines.append(f'  "{uu}" -> "{vv}" [label="p={cp:.2f}"];')
+
+    for (u, v), d in sorted(base_edges.items()):
+        if (u, v) in cur_edges:
+            continue
+        bp = float(d.get("prob", 0.0))
+        uu, vv = _dot_escape(u), _dot_escape(v)
+        lines.append(
+            f'  "{uu}" -> "{vv}" '
+            f'[label="p={bp:.2f} (removed)",color="{_COLOR_REMOVED}",style=dashed];'
+        )
+
+    # Legend
+    lines.append("  subgraph cluster_legend {")
+    lines.append('    label="legend";')
+    lines.append('    fontname="Helvetica";')
+    lines.append('    style=dashed;')
+    lines.append('    "legend_new_a" [label="",shape=point,width=0.01,style=invis];')
+    lines.append('    "legend_new_b" [label="",shape=point,width=0.01,style=invis];')
+    lines.append('    "legend_rem_a" [label="",shape=point,width=0.01,style=invis];')
+    lines.append('    "legend_rem_b" [label="",shape=point,width=0.01,style=invis];')
+    lines.append('    "legend_drift_a" [label="",shape=point,width=0.01,style=invis];')
+    lines.append('    "legend_drift_b" [label="",shape=point,width=0.01,style=invis];')
+    lines.append(
+        f'    "legend_new_a" -> "legend_new_b" '
+        f'[label="new_edge",color="{_COLOR_NEW}",penwidth=2];'
+    )
+    lines.append(
+        f'    "legend_rem_a" -> "legend_rem_b" '
+        f'[label="removed_edge",color="{_COLOR_REMOVED}",style=dashed];'
+    )
+    lines.append(
+        f'    "legend_drift_a" -> "legend_drift_b" '
+        f'[label="edge_drift",color="{_COLOR_DRIFT}"];'
+    )
+    lines.append("  }")
+
+    lines.append("}")
+    return "\n".join(lines) + "\n"

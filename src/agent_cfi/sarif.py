@@ -6,11 +6,12 @@ from pathlib import Path
 from typing import Iterable, Union
 
 from .graph import EdgeFinding
+from .mcp import MCPSchemaFinding
 from .taint import TaintFinding
 
-Finding = Union[EdgeFinding, TaintFinding]
+Finding = Union[EdgeFinding, TaintFinding, MCPSchemaFinding]
 
-_VERSION = "0.1.0"
+_VERSION = "0.2.0"
 _TOOL_URI = "https://github.com/grcwarlock/agent-cfi"
 _HELP_URI = f"{_TOOL_URI}#what-it-catches"
 
@@ -64,6 +65,21 @@ _RULES: dict[str, dict] = {
         "helpUri": _HELP_URI,
         "defaultConfiguration": {"level": "error"},
     },
+    "mcp_schema_mismatch": {
+        "id": "agent-cfi/mcp-schema-mismatch",
+        "name": "MCPSchemaMismatch",
+        "shortDescription": {"text": "MCP tool schema changed since pin (rug-pull)."},
+        "fullDescription": {
+            "text": (
+                "An MCP tool's schema hash no longer matches the pinned baseline, "
+                "or a tool was added/removed since the pin. Silent schema mutations "
+                "(MCP rug-pull) can alter the agent's tool surface without a "
+                "visible code change."
+            )
+        },
+        "helpUri": _HELP_URI,
+        "defaultConfiguration": {"level": "error"},
+    },
 }
 
 
@@ -87,6 +103,15 @@ def _result(f: Finding, baseline_path: str) -> dict:
         }
         out["partialFingerprints"] = {
             "primary": f"taint:{f.tool}:{f.arg}:{f.source}",
+        }
+    elif isinstance(f, MCPSchemaFinding):
+        out["properties"] = {
+            "server": f.server, "tool": f.tool,
+            "baseline_hash": f.baseline_hash,
+            "current_hash": f.current_hash,
+        }
+        out["partialFingerprints"] = {
+            "primary": f"mcp:{f.server}:{f.tool}",
         }
     else:
         out["properties"] = {
