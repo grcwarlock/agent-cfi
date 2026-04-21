@@ -19,7 +19,7 @@ Prompt injection is the ROP of AI agents. An attacker smuggles instructions thro
 3. On every PR, re-run evals and diff the graph. New edges, shifted probabilities, or tainted sources reaching sensitive sinks → CI fails.
 4. Ship with a red-team probe pack derived from 2025–2026 CVEs (CamoLeak, EchoLeak, InversePrompt, Rules-File Backdoor, CurXecute). Green probes mean your guardrails held.
 
-That's it. ~600 lines of Python, one GitHub Action, one YAML probe file.
+That's it. Under 1k lines of Python, one GitHub Action, one YAML probe file.
 
 ## Why this is novel
 
@@ -30,10 +30,10 @@ Academic work exists — AgentSpec (arXiv 2503.18666), probabilistic runtime enf
 ## Install
 
 ```bash
-pip install agent-cfi
-# or, from source:
-pip install git+https://github.com/grcwarlock/agent-cfi
+pip install git+https://github.com/grcwarlock/agent-cfi@v0.1.0
 ```
+
+Not yet on PyPI.
 
 Dependencies: `networkx`, `pyyaml`. That's it.
 
@@ -50,7 +50,7 @@ Record tool-use from your agent. `agent-cfi` reads a simple JSONL format, one ev
 {"run_id": "r1", "step": 3, "tool": "__end__", "arg_sources": {}}
 ```
 
-We provide lightweight helpers in `agent_cfi.tracer` for OpenAI, Anthropic, and LangChain. Or emit events yourself — the format is stable and trivial.
+`agent_cfi.tracer` ships `TraceRecorder` for emitting events directly, plus `from_openai_messages` for converting an OpenAI chat/tool_calls message list. Bring-your-own for other frameworks — the format is stable and trivial.
 
 ### 2. Build the baseline from `main`
 
@@ -75,16 +75,18 @@ Exit code 1 on violations. SARIF output uploads cleanly to GitHub Code Scanning.
 ### 4. Run the probe pack
 
 ```bash
-agent-cfi probe --agent mypkg.agent:run --report probes.json
+agent-cfi probe --agent mypkg.agent:run
+# run probes concurrently (agent must be thread-safe):
+agent-cfi probe --agent mypkg.agent:run --jobs 8
 ```
 
-Injection payloads derived from real 2025–2026 CVEs. Each probe asserts the agent either refuses or stays inside the allowed graph.
+`--agent` takes a `module:callable` that accepts a `Probe` and returns an iterable of `TraceEvent`. Injection payloads are derived from real 2025–2026 CVEs; each probe asserts the agent either refuses or stays inside the allowed graph.
 
 ## GitHub Action
 
 ```yaml
 # .github/workflows/agent-cfi.yml
-- uses: grcwarlock/agent-cfi@v1
+- uses: grcwarlock/agent-cfi@v0.1.0
   with:
     traces: pr-traces.jsonl
     baseline: .agent-cfi/baseline.json
@@ -102,7 +104,6 @@ See [`action.yml`](action.yml).
 | Exfiltration via `http.post` after reading secrets | Tainted source (`tool_output:fs_read`) reaches sink arg (`http_post.body`) |
 | Agent hijacked into loop (e.g., billing drain) | Edge probability drift beyond threshold |
 | Rules-file backdoor changing tool preference | Baseline edges drop off; new edges appear |
-| Silent tool schema mutation (MCP rug-pull) | Tool identity hash mismatch (optional) |
 
 ## What it does NOT do
 
@@ -146,16 +147,17 @@ summarize --1.0--> __end__
 
 A PR that introduces `summarize → shell_exec` is an unambiguous new edge. A PR that shifts `planner → fs_read` from 0.2 to 0.9 is behavioral drift. Both fail the gate (configurable).
 
+Inspect a baseline with `agent-cfi visualize --graph .agent-cfi/baseline.json` — emits Graphviz DOT, pipe through `dot -Tsvg` for a rendered graph.
+
 ## Taint rules
 
-Sources propagate along tool-output edges. If any tainted source reaches a sensitive tool's argument, we emit a finding:
+Each trace event declares, per argument, a list of source labels (e.g. `user_input`, `retrieved`, `tool_output:web_fetch`). If any source listed under a sensitive tool's argument matches a `tainted_sources` pattern from the config, we emit a finding:
 
 ```
-[HIGH] TAINT: user_input → http_post.body (run r3, step 4)
-    Chain: user_input → search_docs.query → (tool_output) → http_post.body
+  [FAIL] taint_violation: Tainted source 'tool_output:search_docs' reaches sensitive sink http_post.body (run eval-pr-1, step 4).
 ```
 
-Minimal overhead for the tracer: you tag `arg_sources` when you emit the event. Helpers do this automatically for common frameworks.
+Patterns support a trailing `*` wildcard (e.g. `tool_output:*` matches any `tool_output:<name>`). The tracer just needs you to tag `arg_sources` when you emit each event.
 
 ## Philosophy
 
